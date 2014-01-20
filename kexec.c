@@ -33,6 +33,7 @@
 #include <sys/stat.h>
 #include <sys/reboot.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <net/if.h>
 #include <gelf.h>
 #include "simple_allocator.h"
@@ -327,6 +328,7 @@ static void *fdt_from_fs(void)
 	void *fdt;
 	int ret;
 	int size;
+	siginfo_t info;
 
 	if (pipe(fds) == -1) {
 		perror("pipe");
@@ -347,9 +349,7 @@ static void *fdt_from_fs(void)
 		dup2(fds[1], STDOUT_FILENO);
 		execlp("dtc", "dtc", "-I", "fs", "-O", "dtb", "-s", "-R", 
 			RESERVED_REGIONS, PROC_DEVICE_TREE, NULL);
-
-		perror("Could not execute dtc");
-		exit(1);
+		exit(255);
 	}
 
 	close(fds[1]);
@@ -378,6 +378,19 @@ static void *fdt_from_fs(void)
 	}
 
 	close(fds[0]);
+
+	if (waitid(P_PID, pid, &info, WEXITED)) {
+		perror("waitpid");
+		exit(1);
+	}
+
+	if (info.si_status == 255) {
+		fprintf(stderr, "Could not execute dtc\n");
+		exit(1);
+	} else if (info.si_status) {
+		fprintf(stderr, "dtc returned %d\n", info.si_status);
+		exit(1);
+	}
 
 	/* Give us a buffer for making changes to the device tree */
 	fdt = dtc_resize(dtb, size + DEVICE_TREE_PAD);
