@@ -593,20 +593,31 @@ static long syscall_kexec_load(unsigned long entry, unsigned long nr_segments,
 		       KEXEC_ARCH_PPC64);
 }
 
-static int debug_arm_kexec()
+static int debug_arm_kexec(void)
 {
 	int i;
 	int ret;
 
-	for (i = 0; i <= kexec_segment_nr; i++) {
+	/*
+	 * First see if the kexec syscall is available and we have
+	 * permission to use it.
+	 */
+	ret = syscall_kexec_load(trampoline_addr, 0, kexec_segments);
+	if (ret) {
+		perror("kexec syscall failed");
+		exit(1);
+	}
+
+	for (i = 1; i <= kexec_segment_nr; i++) {
 		ret = syscall_kexec_load(trampoline_addr, i, kexec_segments);
 
 		if (ret) {
 			fprintf(stderr, "kexec_load failed on segment %d:\n",
 				i);
-			fprintf(stderr, "dest %p, memsize 0x%08x\n",
+			fprintf(stderr, "dest %p, memsize 0x%08lx, %s\n",
 				kexec_segments[i-1].mem,
-				kexec_segments[i-1].memsz);
+				kexec_segments[i-1].memsz,
+				strerror(errno));
 
 			syscall_kexec_load(0, 0, NULL);
 			exit(1);
