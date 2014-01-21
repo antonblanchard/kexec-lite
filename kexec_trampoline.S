@@ -42,6 +42,12 @@
 #define	r8	8
 #define	r9	9
 
+#ifdef __powerpc64__
+#define LOAD	ld
+#else
+#define LOAD	lwz
+#endif
+
 .globl	__trampoline_start
 __trampoline_start:
 	b	start
@@ -64,12 +70,12 @@ start:
 	bl	1f
 1:	mflr	r6
 
-	lwz	r7,(device_tree_addr - 1b)(r6)
+	LOAD	r7,(device_tree_addr - 1b)(r6)
 	/* We save the physical cpu id in the device tree header */
 	stw	r3,DT_CPU_OFFSET(r7)
 	mr	r3,r7
 
-	lwz	r4,(kernel_addr - 1b)(r6)
+	LOAD	r4,(kernel_addr - 1b)(r6)
 
 	li	r5,0
 
@@ -78,10 +84,10 @@ start:
 
 . = KERNEL_ADDR_OFFSET
 kernel_addr:
-	.long	0x0
+	.dc.a	0x0
 . = DEVICE_TREE_ADDR_OFFSET
 device_tree_addr:
-	.long	0x0
+	.dc.a	0x0
 
 .globl	__trampoline_end
 __trampoline_end:

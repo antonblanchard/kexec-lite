@@ -22,7 +22,7 @@
 #define KEXEC_TRAMPOLINE_H
 
 #define KERNEL_ADDR_OFFSET		0x200
-#define DEVICE_TREE_ADDR_OFFSET		0x204
+#define DEVICE_TREE_ADDR_OFFSET		0x208
 
 /* Fixed offset in device tree for storing the physical ID of the boot CPU */
 #define DT_CPU_OFFSET			28
@@ -34,7 +34,7 @@ extern char __trampoline_end[];
 
 static inline void trampoline_set_kernel(void *p, unsigned long addr)
 {
-	unsigned int *v;
+	unsigned long *v;
 
 	v = (p + KERNEL_ADDR_OFFSET);
 	*v = addr;
@@ -42,7 +42,7 @@ static inline void trampoline_set_kernel(void *p, unsigned long addr)
 
 static inline void trampoline_set_device_tree(void *p, unsigned long addr)
 {
-	unsigned int *v;
+	unsigned long *v;
 
 	v = (p + DEVICE_TREE_ADDR_OFFSET);
 	*v = addr;
