@@ -37,7 +37,7 @@ struct free_map *kexec_map;
 static int getprop_u32(const void *fdt, int nodeoffset, const char *name, uint32_t *val)
 {
 	int len;
-	const uint32_t *prop;
+	const fdt32_t *prop;
 
 	prop = fdt_getprop(fdt, nodeoffset, name, &len);
 	if (!prop && len == -FDT_ERR_NOTFOUND)
@@ -53,14 +53,14 @@ static int getprop_u32(const void *fdt, int nodeoffset, const char *name, uint32
 		return -1;
 	}
 
-	*val = *prop;
+	*val = fdt32_to_cpu(*prop);
 	return 0;
 }
 
 static int getprop_u64(const void *fdt, int nodeoffset, const char *name, uint64_t *val)
 {
 	int len;
-	const uint64_t *prop;
+	const fdt64_t *prop;
 
 	prop = fdt_getprop(fdt, nodeoffset, name, &len);
 	if (!prop && len == -FDT_ERR_NOTFOUND)
@@ -76,7 +76,7 @@ static int getprop_u64(const void *fdt, int nodeoffset, const char *name, uint64
 		return -1;
 	}
 
-	*val = *prop;
+	*val = fdt64_to_cpu(*prop);
 	return 0;
 }
 
@@ -84,7 +84,7 @@ static int new_style_reservation(void *fdt, int reserve_initrd)
 {
 	int nodeoffset;
 	const void *p;
-	uint64_t *ranges, *range;
+	fdt64_t *ranges, *range;
 	char *names, *name;
 	int ranges_len, names_len;
 
@@ -133,8 +133,8 @@ static int new_style_reservation(void *fdt, int reserve_initrd)
 	while (ranges_len > 0 && names_len > 0) {
 		uint64_t start, size;
 
-		start = *range++;
-		size = *range++;
+		start = fdt64_to_cpu(*range++);
+		size = fdt64_to_cpu(*range++);
 
 #ifdef DEBUG
 		printf("%s %lx %lx\n", name, start, size);
@@ -184,7 +184,7 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 	while (1) {
 		const char *name;
 		int len;
-		const uint64_t *reg;
+		const fdt64_t *reg;
 
 		nodeoffset = fdt_next_node(fdt, nodeoffset, NULL);
 		if (nodeoffset < 0)
@@ -198,8 +198,8 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 		reg = fdt_getprop(fdt, nodeoffset, "reg", &len);
 
 		while (len) {
-			start = *reg++;
-			size = *reg++;
+			start = fdt64_to_cpu(*reg++);
+			size = fdt64_to_cpu(*reg++);
 			len -= 2 * sizeof(uint64_t);
 
 			if (lpar == 1) {
