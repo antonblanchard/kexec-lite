@@ -5,9 +5,9 @@ LIBFDT_LIBADD = -lfdt
 LIBELF_CPPFLAGS =
 LIBELF_LIBADD = -lelf
 
-CFLAGS = -m32 -Wall -O2 -ggdb3
-LDFLAGS = -m32
-ASFLAGS = -m32
+CFLAGS = -Wall -O2 -ggdb3
+LDFLAGS =
+ASFLAGS =
 
 all: kexec
 
