@@ -205,7 +205,9 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 			if (lpar == 1) {
 				/* Only use the RMA region for LPAR */
 				if (start == 0) {
-					simple_free(kexec_map, start, size);
+					if (size > MEMORY_CAP)
+						size = MEMORY_CAP;
+					simple_free(kexec_map, 0, size);
 					mem_top = size;
 				}
 			} else {
