@@ -344,7 +344,8 @@ static void *fdt_from_fs(void)
 
 	if (!pid) {
 		close(STDOUT_FILENO);
-		close(STDERR_FILENO);
+		if (!debug)
+			close(STDERR_FILENO);
 		close(fds[0]);
 		dup2(fds[1], STDOUT_FILENO);
 		execlp("dtc", "dtc", "-I", "fs", "-O", "dtb", "-s", "-R", 
