@@ -48,6 +48,14 @@
 #define LOAD	lwz
 #endif
 
+#if defined(__LITTLE_ENDIAN__)
+#define STWX_BE	stwbrx
+#elif defined(__BIG_ENDIAN__)
+#define STWX_BE	stwx
+#else
+#error no endianness defined!
+#endif
+
 .globl	__trampoline_start
 __trampoline_start:
 	b	start
@@ -72,7 +80,8 @@ start:
 
 	LOAD	r7,(device_tree_addr - 1b)(r6)
 	/* We save the physical cpu id in the device tree header */
-	stw	r3,DT_CPU_OFFSET(r7)
+	addi	r5,r7,DT_CPU_OFFSET
+	STWX_BE	r3,0,r5
 	mr	r3,r7
 
 	LOAD	r4,(kernel_addr - 1b)(r6)
