@@ -88,8 +88,15 @@ start:
 
 	li	r5,0
 
-	mtctr	r4
-	bctr
+	mtsrr0	r4
+
+	mfmsr	r5
+	clrrdi	r5,r5,1 	/* Clear MSR_LE */
+	mtsrr1	r5
+
+	li	r5,0
+
+	rfid
 
 . = KERNEL_ADDR_OFFSET
 kernel_addr:
