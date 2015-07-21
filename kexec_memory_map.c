@@ -182,7 +182,7 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 	}
 
 	while (1) {
-		const char *name;
+		const char *type;
 		int len;
 		const fdt64_t *reg;
 
@@ -190,9 +190,9 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 		if (nodeoffset < 0)
 			break;
 
-		name = fdt_get_name(fdt, nodeoffset, NULL);
+		type = fdt_getprop(fdt, nodeoffset, "device_type", NULL);
 
-		if (!name || strncmp(name, "memory", strlen("memory")))
+		if (!type || strcmp(type, "memory"))
 			continue;
 
 		reg = fdt_getprop(fdt, nodeoffset, "reg", &len);
