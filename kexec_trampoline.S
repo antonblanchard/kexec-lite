@@ -44,8 +44,10 @@
 
 #ifdef __powerpc64__
 #define LOAD	ld
+#define RFI	rfid
 #else
 #define LOAD	lwz
+#define RFI	rfi
 #endif
 
 #if defined(__LITTLE_ENDIAN__)
@@ -96,7 +98,7 @@ start:
 
 	li	r5,0
 
-	rfid
+	RFI
 
 . = KERNEL_ADDR_OFFSET
 kernel_addr:
