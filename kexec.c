@@ -40,7 +40,7 @@
 #include "kexec_memory_map.h"
 #include "kexec_trampoline.h"
 
-#define VERSION "0.0.2"
+#define VERSION "1.0.0"
 
 #define PROC_DEVICE_TREE "/proc/device-tree"
 #define RESERVED_REGIONS "30"
