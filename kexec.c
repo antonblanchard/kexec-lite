@@ -36,6 +36,8 @@
 #include <sys/wait.h>
 #include <net/if.h>
 #include <gelf.h>
+#include <endian.h>
+#include <zlib.h>
 #include "simple_allocator.h"
 #include "kexec_memory_map.h"
 #include "kexec_trampoline.h"
@@ -108,10 +110,8 @@ static void add_kexec_segment(char *type, void *buf, unsigned long bufsize,
 	kexec_segment_nr++;
 }
 
-static void load_kernel(char *image)
+static void load_kernel(Elf *e)
 {
-	int fd;
-	Elf *e;
 	int i;
 	size_t n;
 	GElf_Phdr phdr;
@@ -121,25 +121,8 @@ static void load_kernel(char *image)
 	unsigned long dest;
 	unsigned long total;
 
-	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr, "load_kernel: Could not initialise libelf\n");
-		exit(1);
-	}
-
-	if ((fd = open(image , O_RDONLY, 0)) < 0) {
-		fprintf(stderr, "load_kernel: Open of %s failed: %s\n", image,
-			strerror(errno));
-		exit(1);
-	}
-
-	e = elf_begin(fd, ELF_C_READ, NULL);
-	if (e == NULL) {
-		fprintf(stderr, "load_kernel: elf_begin failed: %s", elf_errmsg(-1));
-		exit(1);
-	}
-
 	if (elf_kind(e) != ELF_K_ELF) {
-		fprintf(stderr, "load_kernel: %s is not a valid ELF file\n", image);
+		fprintf(stderr, "load_kernel: is not a valid ELF file\n");
 		exit(1);
 	}
 
@@ -149,12 +132,12 @@ static void load_kernel(char *image)
 	}
 
 	if (ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN) {
-		fprintf(stderr, "load_kernel: %s is not a valid executable\n", image);
+		fprintf(stderr, "load_kernel: is not a valid executable\n");
 		exit(1);
 	}
 
 	if (ehdr.e_machine != EM_PPC64) {
-		fprintf(stderr, "load_kernel: %s is not a 64bit PowerPC executable\n", image);
+		fprintf(stderr, "load_kernel: is not a 64bit PowerPC executable\n");
 		exit(1);
 	}
 
@@ -172,8 +155,7 @@ static void load_kernel(char *image)
 
 		/* Make sure we aren't trying to load a normal executable */
 		if (phdr.p_type == PT_INTERP) {
-			fprintf(stderr, "load_kernel: %s requires an ELF interpreter\n",
-				image);
+			fprintf(stderr, "load_kernel: requires an ELF interpreter\n");
 			exit(1);
 		}
 
@@ -207,11 +189,11 @@ static void load_kernel(char *image)
 
 		if (phdr.p_type == PT_LOAD) {
 			void *p;
+			Elf_Data *data;
 			unsigned long offset = phdr.p_offset;
 			unsigned long paddr = phdr.p_paddr;
 			unsigned long size = phdr.p_filesz;
 			unsigned long memsize = phdr.p_memsz;
-			int ret;
 
 			debug_printf("kernel offset 0x%lx paddr 0x%lx "
 				"filesz %ld memsz %ld\n", offset, paddr,
@@ -227,14 +209,14 @@ static void load_kernel(char *image)
 			if (!kernel_current_addr)
 				kernel_current_addr = p;
 
-			lseek(fd, offset, SEEK_SET);
+			data = elf_getdata_rawchunk(e, offset, size, ELF_T_BYTE);
 
-			ret = read(fd, p, size);
-			if (size != ret) {
+			if (!data) {
 				fprintf(stderr, "load_kernel: read of %ld bytes "
-					"returned %d: %s\n", size, ret, strerror(errno));
+					"failed: %s\n", size, elf_errmsg(-1));
 				exit(1);
 			}
+			memcpy(p, data->d_buf, data->d_size);
 
 			memsize = ALIGN_UP(memsize, PAGE_SIZE_64K);
 
@@ -243,9 +225,239 @@ static void load_kernel(char *image)
 					  memsize);
 		}
 	}
+}
+
+#define HEAD_CRC 2
+#define EXTRA_FIELD  4
+#define ORIG_NAME  8
+#define COMMENT    0x10
+#define RESERVED 0xe0
+
+static int get_header_len(const unsigned char *header)
+{
+	int len = 10;
+	int flags = header[3];
+
+	/* check for gzip header */
+	if ((header[0] != 0x1f) || (header[1] != 0x8b) ||
+		(header[2] != Z_DEFLATED) || (flags & RESERVED) != 0) {
+		fprintf(stderr, "bad gzip header : %x %x %x %x\n",
+			header[0],
+			header[1], header[2], header[3]);
+		return -1;
+	}
+
+	if ((flags & EXTRA_FIELD) != 0)
+		len = 12 + header[10] + (header[11] << 8);
+
+	if ((flags & ORIG_NAME) != 0)
+		while (header[len++] != 0)
+			;
+	if ((flags & COMMENT) != 0)
+		while (header[len++] != 0)
+			;
+	if ((flags & HEAD_CRC) != 0)
+		len += 2;
+
+	return len;
+}
+
+static int gunzip(void *src, size_t srclen, void **out)
+{
+	z_stream strm;
+	size_t total = 0;
+	int hdrlen;
+	int ret;
+	unsigned int *tmp;
+	unsigned int vmlinux_size;
+
+	/* The size of the uncompressed file is stored in the last 4
+	 * bytes in little endian. Only works for a vmlinux < 4G */
+	tmp = (src + srclen) - sizeof(*tmp);
+	vmlinux_size = le32toh(*tmp);
+
+	debug_printf("Found vmlinuz at %p, unzipping %d bytes\n", src,
+		     vmlinux_size);
+
+	hdrlen = get_header_len(src);
+	if (hdrlen == -1)
+		return -1;
+
+	if (hdrlen >= srclen) {
+		fprintf(stderr, "gunzip: gzip header too large : %d\n", hdrlen);
+		return -1;
+	}
+
+	strm.zalloc = Z_NULL;
+	strm.zfree = Z_NULL;
+	strm.opaque = Z_NULL;
+	strm.avail_in = 0;
+	strm.next_in = Z_NULL;
+
+	ret = inflateInit2(&strm, -MAX_WBITS);
+	if (ret != Z_OK) {
+		fprintf(stderr, "gunzip: inflateInit2 failed : %d\n", ret);
+		return -1;
+	}
+
+	/* skip gzip header */
+	strm.total_in = hdrlen;
+	strm.next_in = src + hdrlen;
+	strm.avail_in = srclen - hdrlen;
+
+	*out = malloc(vmlinux_size + hdrlen);
+	if (!*out) {
+		fprintf(stderr, "gunzip: failed to allocate %d bytes: %s\n",
+			vmlinux_size,
+			strerror(errno));
+		return -1;
+	}
+
+	strm.avail_out = vmlinux_size + hdrlen;
+	strm.next_out = *out;
+
+	ret = inflate(&strm, Z_FINISH);
+	if (ret != Z_OK && ret != Z_STREAM_END) {
+		fprintf(stderr, "gunzip: inflate failed :  %d %s\n",
+			ret,
+			strm.msg);
+		inflateEnd(&strm);
+		return -1;
+	}
+
+	inflateEnd(&strm);
+
+	return vmlinux_size;
+}
+
+#define VMLINUZ_SECTION_NAME ".kernel:vmlinux.strip"
+
+static void load_zimage(char *image)
+{
+	int fd;
+	Elf *e;
+	int i;
+	GElf_Ehdr ehdr;
+	size_t shnums;
+	size_t shstrndx;
+	Elf_Data *data = NULL;
+	void *vmlinux_data = NULL;
+
+	if (elf_version(EV_CURRENT) == EV_NONE) {
+		fprintf(stderr, "load_zimage: Could not initialise libelf\n");
+		exit(1);
+	}
+
+	if ((fd = open(image, O_RDONLY, 0)) < 0) {
+		fprintf(stderr, "load_zimage: Open of %s failed: %s\n", image,
+			strerror(errno));
+		exit(1);
+	}
+
+	e = elf_begin(fd, ELF_C_READ, NULL);
+	if (e == NULL) {
+		fprintf(stderr, "load_zimage: elf_begin failed: %s",
+			elf_errmsg(-1));
+		exit(1);
+	}
+
+	if (elf_kind(e) != ELF_K_ELF) {
+		fprintf(stderr, "load_zimage: %s is not a valid ELF file\n",
+			image);
+		exit(1);
+	}
+
+	if (gelf_getehdr(e, &ehdr) == NULL) {
+		fprintf(stderr, "load_zimage: gelf_getehdr failed: %s",
+			elf_errmsg(-1));
+		exit(1);
+	}
+
+	if (ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN) {
+		fprintf(stderr, "load_zimage: %s is not a valid executable\n",
+			image);
+		exit(1);
+	}
+
+	/* do not test for EM_PPC64 as the big endian boot wrapper is
+	 * 32bit */
+
+	if (elf_getshdrnum(e, &shnums) < 0) {
+		fprintf(stderr, "load_zimage: gelf_getshdrnum failed: %s\n",
+			elf_errmsg(-1));
+		exit(1);
+	}
+
+	if (elf_getshdrstrndx(e, &shstrndx) < 0) {
+		fprintf(stderr, "load_zimage: gelf_getshdrstrndx failed: %s\n",
+			elf_errmsg(-1));
+		exit(1);
+	}
+
+	for (i = 1; i < shnums; ++i) {
+		const char *sname;
+		GElf_Shdr shdr_mem;
+		GElf_Shdr *shdr;
+		Elf_Scn *scn;
+
+		scn = elf_getscn(e, i);
+		if (!scn) {
+			fprintf(stderr, "load_zimage: gelf_getscn failed: %s\n",
+				elf_errmsg(-1));
+			exit(1);
+		}
+
+		shdr = gelf_getshdr(scn, &shdr_mem);
+		if (!shdr) {
+			fprintf(stderr,
+				"load_zimage: gelf_getshdr failed: %s\n",
+				elf_errmsg(-1));
+			exit(1);
+		}
+
+		sname = elf_strptr(e, shstrndx, shdr->sh_name);
+		if (!sname) {
+			fprintf(stderr, "load_zimage: gelf_strptr failed: %s\n",
+				elf_errmsg(-1));
+			exit(1);
+		}
+
+		if (strcmp(sname, VMLINUZ_SECTION_NAME))
+			continue;
+
+		data = elf_rawdata(scn, NULL);
+		if (!data) {
+			fprintf(stderr,
+				"load_zimage: elf_rawadata failed: %s\n",
+				elf_errmsg(-1));
+			exit(1);
+		}
+		break;
+	}
+
+	/* This is a zimage file, extract the vmlinux from it */
+	if (data) {
+		int vmlinux_size;
+		vmlinux_size = gunzip(data->d_off + data->d_buf, data->d_size,
+				      &vmlinux_data);
+		if (vmlinux_size < 0)
+			exit(1);
+
+		/* Reopen uncompressed data as an in-memory ELF image */
+		elf_end(e);
+		e = elf_memory(vmlinux_data, vmlinux_size);
+		if (e == NULL) {
+			fprintf(stderr, "load_zimage: elf_memory failed: %s\n",
+				elf_errmsg(-1));
+			exit(1);
+		}
+	}
+
+	load_kernel(e);
 
 	elf_end(e);
 	close(fd);
+	free(vmlinux_data);
 }
 
 static void *dtc_resize(void *p, unsigned long size)
@@ -816,7 +1028,7 @@ int main(int argc, char *argv[])
 			simple_dump_free_map(kexec_map);
 		}
 
-		load_kernel(kernel);
+		load_zimage(kernel);
 
 		if (initrd)
 			load_initrd(initrd);
