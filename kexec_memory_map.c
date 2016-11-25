@@ -244,18 +244,11 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 
 	simple_alloc_at(kexec_map, start, end - start);
 
-	/* Reserve the MMU hashtable in non LPAR mode */
-	if (lpar == 0) {
-		if (getprop_u64(fdt, nodeoffset, "linux,htab-base", &start) ||
-		    getprop_u64(fdt, nodeoffset, "linux,htab-size", &size)) {
-			fprintf(stderr, "Could not find linux,htab-base or "
-				"linux,htab-size properties\n");
-			exit(1);
-		}
-
+	/* Reserve the MMU hashtable if found */
+	if (!getprop_u64(fdt, nodeoffset, "linux,htab-base", &start) &&
+	    !getprop_u64(fdt, nodeoffset, "linux,htab-size", &size))
 		if (start < mem_top)
 			simple_alloc_at(kexec_map, start, size);
-	}
 
 	/* XXX FIXME: Reserve TCEs in kexec_map */
 
