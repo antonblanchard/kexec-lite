@@ -63,6 +63,11 @@ struct kexec_segment {
 
 #define	LINUX_REBOOT_CMD_KEXEC	0x45584543
 
+#if !defined(__NR_kexec_file_load)
+# define __NR_kexec_file_load 382
+#endif
+
+#define KEXEC_FILE_NO_INITRAMFS 0x00000004
 
 #define PAGE_SIZE_64K		0x10000
 
@@ -667,6 +672,14 @@ static long syscall_kexec_load(unsigned long entry, unsigned long nr_segments,
 		       KEXEC_ARCH_PPC64);
 }
 
+static long syscall_kexec_file_load(int kernel_fd, int initrd_fd,
+				    unsigned long cmdline_len, const char *cmdline_ptr,
+				    unsigned long flags)
+{
+	return syscall(__NR_kexec_file_load, kernel_fd, initrd_fd,
+		       cmdline_len, cmdline_ptr, flags);
+}
+
 static int debug_arm_kexec(void)
 {
 	int i;
@@ -753,6 +766,39 @@ static void exec_kexec(void)
 	exit(1);
 }
 
+static void do_file_load(char *kernel, char *initrd, char *cmdline)
+{
+	int kernel_fd = -1;
+	int initrd_fd = -1;
+	int ret = 0;
+	unsigned long cmdline_len;
+	unsigned long flags = 0;
+
+	if (!cmdline) {
+		cmdline = "";
+		cmdline_len = 0;
+	}
+	else
+		/* cmdline_len includes the '\0'. */
+		cmdline_len = strlen(cmdline) + 1;
+
+	if (kernel)
+		kernel_fd = open(kernel, O_RDONLY);
+
+	if (initrd)
+		initrd_fd = open(initrd, O_RDONLY);
+	else
+		flags |= KEXEC_FILE_NO_INITRAMFS;
+
+	debug_printf("kernel_fd=%d initrd_fd=%d cmdline_len=%lu flags=%lu\n",
+			kernel_fd, initrd_fd, cmdline_len, flags);
+	debug_printf("cmdline=\"%s\"\n", cmdline);
+	ret = syscall_kexec_file_load(kernel_fd, initrd_fd, cmdline_len, cmdline, flags);
+	if (ret)
+		fprintf(stderr, "do_file_load: (%d) %s\n", ret, strerror(errno));
+}
+
+
 static void usage(void)
 {
 	printf("Usage: kexec\n"
@@ -763,6 +809,7 @@ static void usage(void)
 		"	-c|--command-line|--append\n"
 		"	-b|--devicetreeblob|--dtb\n"
 		"	-l|--load\n"
+		"	-s|--file-load\n"
 		"	-u|--unload\n"
 		"	-e|--exec\n"
 		"	-f|--force\n");
@@ -776,6 +823,7 @@ int main(int argc, char *argv[])
 	char *kernel = NULL;
 	int exec = 0;
 	int load = 0;
+	int file_load = 0;
 	int unload = 0;
 	int force = 0;
 	struct option long_options[] = {
@@ -789,6 +837,7 @@ int main(int argc, char *argv[])
 		{"devicetreeblob", required_argument, 0, 'b' },
 		{"dtb", required_argument, 0, 'b' },
 		{"load", 0, 0, 'l' },
+		{"file-load", 0, 0, 's' },
 		{"unload", 0, 0, 'u' },
 		{"exec", 0, 0, 'e' },
 		{"force", 0, 0, 'f' },
@@ -797,7 +846,7 @@ int main(int argc, char *argv[])
 	void *fdt;
 
 	while (1) {
-		signed char c = getopt_long(argc, argv, "hdvi:c:b:luef", long_options, NULL);
+		signed char c = getopt_long(argc, argv, "hdvi:c:b:lsuef", long_options, NULL);
 		if (c < 0)
 			break;
 
@@ -826,6 +875,10 @@ int main(int argc, char *argv[])
 			load = 1;
 			break;
 
+		case 's':
+			file_load = 1;
+			break;
+
 		case 'u':
 			unload = 1;
 			break;
@@ -845,12 +898,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if ((load || exec) && unload) {
+	if ((load || file_load || exec) && unload) {
 		usage();
 		exit(1);
 	}
 
-	if (load) {
+	if (load || file_load) {
 		if (optind < argc) {
 			kernel = argv[optind++];
 		} else {
@@ -893,6 +946,10 @@ int main(int argc, char *argv[])
 			debug_printf("free memory map after loading:\n");
 			simple_dump_free_map(kexec_map);
 		}
+	}
+
+	if (file_load) {
+		do_file_load(kernel, initrd, cmdline);
 	}
 
 	if (exec) {
