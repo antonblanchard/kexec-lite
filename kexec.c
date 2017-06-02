@@ -824,7 +824,7 @@ int main(int argc, char *argv[])
 		if (cmdline)
 			update_cmdline(fdt, cmdline);
 
-		load_fdt(fdt, 1);
+		load_fdt(fdt, initrd != NULL);
 		load_trampoline();
 
 		arm_kexec();
