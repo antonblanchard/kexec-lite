@@ -745,7 +745,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'v':
-			printf("%s\n", VERSION);
+			printf("%s (git: %s)\n", VERSION, GIT_SHA1);
 			exit(1);
 
 		case 'i':
