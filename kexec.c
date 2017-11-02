@@ -40,8 +40,6 @@
 #include "kexec_memory_map.h"
 #include "kexec_trampoline.h"
 
-#define VERSION "1.0.0"
-
 #define PROC_DEVICE_TREE "/proc/device-tree"
 #define RESERVED_REGIONS "30"
 #define DEVICE_TREE_PAD (1UL * 1024 * 1024)
