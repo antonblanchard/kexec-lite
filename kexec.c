@@ -108,6 +108,49 @@ static void add_kexec_segment(char *type, void *buf, unsigned long bufsize,
 	kexec_segment_nr++;
 }
 
+static GElf_Shdr *getshdr(Elf *e, int idx, GElf_Shdr *shdr)
+{
+	if (gelf_getshdr(elf_getscn(e, idx), shdr) == NULL) {
+		fprintf(stderr, "getshdr: get section failed\n");
+		return (NULL);
+	}
+
+	return (shdr);
+}
+
+static GElf_Addr get_entry_addr(Elf *e, GElf_Ehdr ehdr, GElf_Addr entry)
+{
+	Elf_Data *data = NULL;
+	GElf_Shdr shdr;
+	GElf_Addr new_entry;
+	unsigned int fileoff = 0;
+	int i;
+
+	for (i = 0; i < ehdr.e_shnum; i++) {
+		if (getshdr(e, i, &shdr) == NULL) {
+			printf("address_to_offset: getshdr failed\n");
+			return (entry);
+		}
+
+		if (entry >= shdr.sh_addr &&
+		    entry < shdr.sh_addr + shdr.sh_size &&
+		    strncmp(".opd", elf_strptr(e, ehdr.e_shstrndx, shdr.sh_name), 4) == 0) {
+			fileoff = shdr.sh_offset + (entry - shdr.sh_addr);
+			break;
+		}
+	}
+
+	if (fileoff == 0)
+		return (entry);
+
+	data = elf_getdata_rawchunk(e, fileoff, sizeof(new_entry), ELF_T_BYTE);
+
+	new_entry = *(GElf_Addr *)data->d_buf;
+	new_entry = be64toh(new_entry);
+
+	return (new_entry);
+}
+
 static void load_kernel(char *image)
 {
 	int fd;
@@ -174,7 +217,7 @@ static void load_kernel(char *image)
 		if (phdr.p_type == PT_INTERP) {
 			fprintf(stderr, "load_kernel: %s requires an ELF interpreter\n",
 				image);
-			exit(1);
+			continue;
 		}
 
 		if (phdr.p_type == PT_LOAD) {
@@ -211,6 +254,7 @@ static void load_kernel(char *image)
 			unsigned long paddr = phdr.p_paddr;
 			unsigned long size = phdr.p_filesz;
 			unsigned long memsize = phdr.p_memsz;
+			unsigned long kernel_entry = 0;
 			int ret;
 
 			debug_printf("kernel offset 0x%lx paddr 0x%lx "
@@ -241,6 +285,15 @@ static void load_kernel(char *image)
 			add_kexec_segment("kernel", p, size,
 					  (void *)(dest + paddr - start),
 					  memsize);
+
+			/* Parse function descriptor for ELFv1 kernels */
+			if ((ehdr.e_flags & 3) == 2)
+				kernel_entry = ehdr.e_entry;
+			else {
+				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry) - phdr.p_vaddr;
+				debug_printf("Kernel entry: 0x%lx\n", kernel_entry);
+			}
+			kernel_addr += kernel_entry;
 		}
 	}
 

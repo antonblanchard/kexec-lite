@@ -76,6 +76,8 @@ start:
 	 * r3 = physical address of device tree
 	 * r4 = physical address of kernel
 	 * r5 = 0
+	 * r6 = ePAPR cookie
+	 * r7 = 0
 	 */
 	bl	1f
 1:	mflr	r6
@@ -97,6 +99,12 @@ start:
 	mtsrr1	r5
 
 	li	r5,0
+
+	/* Put ePAPR cookie 0x65504150 */
+	lis	r6,0x6550
+	addi	r6,r6,0x4150
+
+	li	r7,0
 
 	RFI
 
