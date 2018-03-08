@@ -40,8 +40,6 @@
 #include "kexec_memory_map.h"
 #include "kexec_trampoline.h"
 
-#define VERSION "1.0.0"
-
 #define PROC_DEVICE_TREE "/proc/device-tree"
 #define RESERVED_REGIONS "30"
 #define DEVICE_TREE_PAD (1UL * 1024 * 1024)
@@ -800,7 +798,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'v':
-			printf("%s\n", VERSION);
+			printf("%s (git: %s)\n", VERSION, GIT_SHA1);
 			exit(1);
 
 		case 'i':
@@ -877,7 +875,7 @@ int main(int argc, char *argv[])
 		if (cmdline)
 			update_cmdline(fdt, cmdline);
 
-		load_fdt(fdt, 1);
+		load_fdt(fdt, initrd != NULL);
 		load_trampoline();
 
 		arm_kexec();
