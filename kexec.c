@@ -61,6 +61,9 @@ struct kexec_segment {
 
 #define KEXEC_ARCH_PPC64	(21 << 16)
 
+#define EFLAGS_ABI_MASK	0x3
+#define EFLAGS_ABI_V1	0x1
+
 #define	LINUX_REBOOT_CMD_KEXEC	0x45584543
 
 
@@ -312,14 +315,23 @@ static void load_kernel(char *image)
 					  (void *)(dest + paddr - start),
 					  memsize);
 
-			/* Parse function descriptor for ELFv1 kernels */
-			if ((ehdr.e_flags & 3) == 2)
+			/*
+			 * Bits 1 and 2 in e_flags indicates the ABI version the
+			 * file is using. For v1 we need to read the actual entry
+			 * point from a function descriptor.
+			 */
+			if ((ehdr.e_flags & EFLAGS_ABI_MASK) == EFLAGS_ABI_V1)
+				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry);
+			else
 				kernel_entry = ehdr.e_entry;
-			else {
-				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry) - phdr.p_vaddr;
-				debug_printf("Kernel entry: 0x%lx\n", kernel_entry);
-			}
-			kernel_addr += kernel_entry;
+
+			/*
+			 * kernel_entry is a virtual address. Remove the virtual
+			 * load address to get an offset that kexec can jump to.
+			 */
+			kernel_addr += kernel_entry - phdr.p_vaddr;
+			debug_printf("Entering kernel image at: 0x%lx\n",
+					kernel_addr);
 		}
 	}
 
