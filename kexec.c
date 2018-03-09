@@ -149,6 +149,31 @@ static GElf_Addr get_entry_addr(Elf *e, GElf_Ehdr ehdr, GElf_Addr entry)
 	return (new_entry);
 }
 
+static int has_kernel_section(Elf *e, GElf_Ehdr ehdr)
+{
+	GElf_Shdr shdr;
+	int i;
+
+	for (i = 0; i < ehdr.e_shnum; i++) {
+		char *section_name;
+
+		if (getshdr(e, i, &shdr) == NULL) {
+			printf("address_to_offset: getshdr failed\n");
+			return 0;
+		}
+
+		/*
+		 * Our zImage has the compressed kernel image in the
+		 * .kernel:<filename> section so check for it.
+		 */
+		section_name = elf_strptr(e, ehdr.e_shstrndx, shdr.sh_name);
+		if (strstr(section_name, ".kernel"))
+			return 1;
+	}
+
+	return 0;
+}
+
 static void load_kernel(char *image)
 {
 	int fd;
@@ -211,10 +236,13 @@ static void load_kernel(char *image)
 			exit(1);
 		}
 
-		/* Make sure we aren't trying to load a normal executable */
-		if (phdr.p_type == PT_INTERP) {
-			fprintf(stderr, "load_kernel: %s requires an ELF interpreter\n",
-				image);
+		/*
+		 * Make sure we aren't trying to load a normal executable. For
+		 * some reason older zImages have a PT_INTERP section so we
+		 * shouldn't just bail out here.
+		 */
+		if (phdr.p_type == PT_INTERP && !has_kernel_section(e, ehdr)) {
+			fprintf(stderr, "load_kernel: No .kernel section found in ELF. Are you sure you can kexec that?\n");
 			continue;
 		}
 
