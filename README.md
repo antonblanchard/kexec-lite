@@ -8,4 +8,18 @@ Dependencies
 
 Requires Make, a C toolchain, and the libraries libelf and libfdt.
 
-```sudo apt-get install libelf-dev libfdt-dev```
+Ubuntu:
+```sudo apt-get install automake libelf-dev libfdt-dev```
+
+Fedora:
+```sudo dnf install automake elfutils-libelf-devel libfdt-devel```
+
+Building
+------------
+```
+./bootstrap.sh
+./configure
+make
+```
+
+The output binary is called `kexec`
