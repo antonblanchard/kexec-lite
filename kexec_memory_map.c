@@ -29,7 +29,7 @@
 
 #define MEMORY_CAP (2UL * 1024 * 1024 * 1024)
 
-static unsigned long mem_top = 0;
+unsigned long mem_top = 0;
 
 struct free_map *kexec_map;
 

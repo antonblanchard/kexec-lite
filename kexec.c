@@ -633,6 +633,7 @@ static void load_trampoline(void)
 
 	trampoline_set_kernel(p, kernel_addr);
 	trampoline_set_device_tree(p, device_tree_addr);
+	trampoline_set_ima_size(p, mem_top);
 
 	dest = simple_alloc_high(kexec_map, memsize, PAGE_SIZE_64K);
 

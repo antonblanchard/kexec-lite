@@ -21,6 +21,7 @@
 #ifndef KEXEC_MEMORY_MAP_H
 #define KEXEC_MEMORY_MAP_H
 
+extern unsigned long mem_top;
 extern struct free_map *kexec_map;
 
 void kexec_memory_map(void *fdt, int reserve_initrd);

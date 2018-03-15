@@ -23,6 +23,7 @@
 
 #define KERNEL_ADDR_OFFSET		0x200
 #define DEVICE_TREE_ADDR_OFFSET		0x208
+#define IMA_SIZE_OFFSET			0x210
 
 /* Fixed offset in device tree for storing the physical ID of the boot CPU */
 #define DT_CPU_OFFSET			28
@@ -46,6 +47,14 @@ static inline void trampoline_set_device_tree(void *p, unsigned long addr)
 
 	v = (p + DEVICE_TREE_ADDR_OFFSET);
 	*v = addr;
+}
+
+static inline void trampoline_set_ima_size(void *p, unsigned long size)
+{
+	unsigned long *v;
+
+	v = (p + IMA_SIZE_OFFSET);
+	*v = size;
 }
 
 #endif
