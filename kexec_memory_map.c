@@ -28,6 +28,7 @@
 #undef DEBUG
 
 #define MEMORY_CAP (2UL * 1024 * 1024 * 1024)
+#define KERNEL_RESERVE (256 * 1024 * 1024)
 
 unsigned long mem_top = 0;
 
@@ -232,17 +233,8 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 		exit(1);
 	}
 
-	/*
-	 * XXX FIXME: Need to add linux,kernel-start property to the
-	 * kernel to handle relocatable kernels.
-	 */
-	start = 0;
-	if (getprop_u64(fdt, nodeoffset, "linux,kernel-end", &end)) {
-		fprintf(stderr, "getprop linux,kernel-end failed\n");
-		exit(1);
-	}
-
-	simple_alloc_at(kexec_map, start, end - start);
+	/* reserve the bottom of memory for our decompressed kernel */
+	simple_alloc_at(kexec_map, 0, KERNEL_RESERVE);
 
 	/* Reserve the MMU hashtable if found */
 	if (!getprop_u64(fdt, nodeoffset, "linux,htab-base", &start) &&
