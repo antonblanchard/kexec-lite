@@ -564,18 +564,25 @@ static void load_fdt(void *fdt, int update_initrd)
 	unsigned long memsize;
 	unsigned long dest;
 	uint64_t val64;
-	int ret;
+	int ret, nodeoffset;
+
+	nodeoffset = fdt_path_offset(fdt, "/chosen");
+
+	/* Fix up the initrd start and end properties */
+	if (nodeoffset < 0) {
+		FDT_ERROR("fdt_path_offset /chosen", nodeoffset);
+		exit(1);
+	}
+
+	/*
+	 * linux,kernel-end is an informational property that is only consumed
+	 * kexec-tools when loading a crashkernel. The new kernel re-generates
+	 * the property to match the end of it's kernel image so it shouldn't
+	 * be included in the dtb.
+	 */
+	fdt_delprop(fdt, nodeoffset, "linux,kernel-end");
 
 	if (update_initrd) {
-		int nodeoffset;
-
-		/* Fix up the initrd start and end properties */
-		nodeoffset = fdt_path_offset(fdt, "/chosen");
-		if (nodeoffset < 0) {
-			FDT_ERROR("fdt_path_offset /chosen", nodeoffset);
-			exit(1);
-		}
-
 		val64 = initrd_start;
 		ret = fdt_setprop_u64(fdt, nodeoffset, "linux,initrd-start", val64);
 		if (ret < 0) {
