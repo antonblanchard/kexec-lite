@@ -68,6 +68,7 @@ struct kexec_segment {
 
 
 #define PAGE_SIZE_64K		0x10000
+#define ZIMAGE_HEAP_SIZE	4 * 1024 * 1024;
 
 #define ALIGN_UP(VAL, SIZE)	(((VAL) + (SIZE-1)) & ~(SIZE-1))
 #define ALIGN_DOWN(VAL, SIZE)	((VAL) & ~(SIZE-1))
@@ -261,7 +262,19 @@ static void load_kernel(char *image)
 		}
 	}
 
-	total = end - start;
+	/*
+	 * The zImage doesn't parse all the reserved ranges in the device-tree
+	 * and just uses the area immediately after the zImage as a heap. We
+	 * add a bit of padding here so that the it won't allocate into
+	 * the initrd and corrupt it.
+	 *
+	 * A small heap should be fine. The only situation where the zImage
+	 * does large allocations is when it detects that the uncompressed
+	 * vmlinux would overlap with the initrd. However, the order in
+	 * which kexec-lite loads the kernel and initrd ensures that this
+	 * can't ever happen.
+	 */
+	total = end - start + ZIMAGE_HEAP_SIZE;
 
 	/* Round up to nearest 64kB page */
 	total = ALIGN_UP(total, PAGE_SIZE_64K);
