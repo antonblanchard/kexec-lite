@@ -77,7 +77,7 @@ start:
 	 * r4 = physical address of kernel
 	 * r5 = 0
 	 * r6 = ePAPR cookie
-	 * r7 = 0
+	 * r7 = ePAPR initial mapped area size
 	 */
 	bl	1f
 1:	mflr	r6
@@ -100,11 +100,11 @@ start:
 
 	li	r5,0
 
+	LOAD	r7,(ima_size - 1b)(r6)
+
 	/* Put ePAPR cookie 0x65504150 */
 	lis	r6,0x6550
 	addi	r6,r6,0x4150
-
-	li	r7,0
 
 	RFI
 
@@ -113,6 +113,9 @@ kernel_addr:
 	.dc.a	0x0
 . = DEVICE_TREE_ADDR_OFFSET
 device_tree_addr:
+	.dc.a	0x0
+. = IMA_SIZE_OFFSET
+ima_size:
 	.dc.a	0x0
 
 .globl	__trampoline_end

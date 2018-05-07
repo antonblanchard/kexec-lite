@@ -61,10 +61,14 @@ struct kexec_segment {
 
 #define KEXEC_ARCH_PPC64	(21 << 16)
 
+#define EFLAGS_ABI_MASK	0x3
+#define EFLAGS_ABI_V1	0x1
+
 #define	LINUX_REBOOT_CMD_KEXEC	0x45584543
 
 
 #define PAGE_SIZE_64K		0x10000
+#define ZIMAGE_HEAP_SIZE	4 * 1024 * 1024;
 
 #define ALIGN_UP(VAL, SIZE)	(((VAL) + (SIZE-1)) & ~(SIZE-1))
 #define ALIGN_DOWN(VAL, SIZE)	((VAL) & ~(SIZE-1))
@@ -149,6 +153,31 @@ static GElf_Addr get_entry_addr(Elf *e, GElf_Ehdr ehdr, GElf_Addr entry)
 	return (new_entry);
 }
 
+static int has_kernel_section(Elf *e, GElf_Ehdr ehdr)
+{
+	GElf_Shdr shdr;
+	int i;
+
+	for (i = 0; i < ehdr.e_shnum; i++) {
+		char *section_name;
+
+		if (getshdr(e, i, &shdr) == NULL) {
+			printf("address_to_offset: getshdr failed\n");
+			return 0;
+		}
+
+		/*
+		 * Our zImage has the compressed kernel image in the
+		 * .kernel:<filename> section so check for it.
+		 */
+		section_name = elf_strptr(e, ehdr.e_shstrndx, shdr.sh_name);
+		if (strstr(section_name, ".kernel"))
+			return 1;
+	}
+
+	return 0;
+}
+
 static void load_kernel(char *image)
 {
 	int fd;
@@ -211,10 +240,13 @@ static void load_kernel(char *image)
 			exit(1);
 		}
 
-		/* Make sure we aren't trying to load a normal executable */
-		if (phdr.p_type == PT_INTERP) {
-			fprintf(stderr, "load_kernel: %s requires an ELF interpreter\n",
-				image);
+		/*
+		 * Make sure we aren't trying to load a normal executable. For
+		 * some reason older zImages have a PT_INTERP section so we
+		 * shouldn't just bail out here.
+		 */
+		if (phdr.p_type == PT_INTERP && !has_kernel_section(e, ehdr)) {
+			fprintf(stderr, "load_kernel: No .kernel section found in ELF. Are you sure you can kexec that?\n");
 			continue;
 		}
 
@@ -230,7 +262,19 @@ static void load_kernel(char *image)
 		}
 	}
 
-	total = end - start;
+	/*
+	 * The zImage doesn't parse all the reserved ranges in the device-tree
+	 * and just uses the area immediately after the zImage as a heap. We
+	 * add a bit of padding here so that the it won't allocate into
+	 * the initrd and corrupt it.
+	 *
+	 * A small heap should be fine. The only situation where the zImage
+	 * does large allocations is when it detects that the uncompressed
+	 * vmlinux would overlap with the initrd. However, the order in
+	 * which kexec-lite loads the kernel and initrd ensures that this
+	 * can't ever happen.
+	 */
+	total = end - start + ZIMAGE_HEAP_SIZE;
 
 	/* Round up to nearest 64kB page */
 	total = ALIGN_UP(total, PAGE_SIZE_64K);
@@ -284,14 +328,23 @@ static void load_kernel(char *image)
 					  (void *)(dest + paddr - start),
 					  memsize);
 
-			/* Parse function descriptor for ELFv1 kernels */
-			if ((ehdr.e_flags & 3) == 2)
+			/*
+			 * Bits 1 and 2 in e_flags indicates the ABI version the
+			 * file is using. For v1 we need to read the actual entry
+			 * point from a function descriptor.
+			 */
+			if ((ehdr.e_flags & EFLAGS_ABI_MASK) == EFLAGS_ABI_V1)
+				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry);
+			else
 				kernel_entry = ehdr.e_entry;
-			else {
-				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry) - phdr.p_vaddr;
-				debug_printf("Kernel entry: 0x%lx\n", kernel_entry);
-			}
-			kernel_addr += kernel_entry;
+
+			/*
+			 * kernel_entry is a virtual address. Remove the virtual
+			 * load address to get an offset that kexec can jump to.
+			 */
+			kernel_addr += kernel_entry - phdr.p_vaddr;
+			debug_printf("Entering kernel image at: 0x%lx\n",
+					kernel_addr);
 		}
 	}
 
@@ -524,18 +577,25 @@ static void load_fdt(void *fdt, int update_initrd)
 	unsigned long memsize;
 	unsigned long dest;
 	uint64_t val64;
-	int ret;
+	int ret, nodeoffset;
+
+	nodeoffset = fdt_path_offset(fdt, "/chosen");
+
+	/* Fix up the initrd start and end properties */
+	if (nodeoffset < 0) {
+		FDT_ERROR("fdt_path_offset /chosen", nodeoffset);
+		exit(1);
+	}
+
+	/*
+	 * linux,kernel-end is an informational property that is only consumed
+	 * kexec-tools when loading a crashkernel. The new kernel re-generates
+	 * the property to match the end of it's kernel image so it shouldn't
+	 * be included in the dtb.
+	 */
+	fdt_delprop(fdt, nodeoffset, "linux,kernel-end");
 
 	if (update_initrd) {
-		int nodeoffset;
-
-		/* Fix up the initrd start and end properties */
-		nodeoffset = fdt_path_offset(fdt, "/chosen");
-		if (nodeoffset < 0) {
-			FDT_ERROR("fdt_path_offset /chosen", nodeoffset);
-			exit(1);
-		}
-
 		val64 = initrd_start;
 		ret = fdt_setprop_u64(fdt, nodeoffset, "linux,initrd-start", val64);
 		if (ret < 0) {
@@ -593,6 +653,7 @@ static void load_trampoline(void)
 
 	trampoline_set_kernel(p, kernel_addr);
 	trampoline_set_device_tree(p, device_tree_addr);
+	trampoline_set_ima_size(p, mem_top);
 
 	dest = simple_alloc_high(kexec_map, memsize, PAGE_SIZE_64K);
 
