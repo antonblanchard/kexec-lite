@@ -280,18 +280,27 @@ static void load_kernel(char *image)
 
 			memsize = ALIGN_UP(memsize, PAGE_SIZE_64K);
 
-			add_kexec_segment("kernel", p, size,
-					  (void *)(dest + paddr - start),
-					  memsize);
+			if ((phdr.p_flags & PF_X) == PF_X) {
 
-			/* Parse function descriptor for ELFv1 kernels */
-			if ((ehdr.e_flags & 3) == 2)
-				kernel_entry = ehdr.e_entry;
-			else {
-				kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry) - phdr.p_vaddr;
-				debug_printf("Kernel entry: 0x%lx\n", kernel_entry);
+				add_kexec_segment("kernel", p, size,
+						  (void *)(dest + paddr - start),
+						  memsize);
+
+				/* Parse function descriptor for ELFv1 kernels */
+				if ((ehdr.e_flags & 3) == 2)
+					kernel_entry = ehdr.e_entry - phdr.p_vaddr;
+				else {
+					kernel_entry = get_entry_addr(e, ehdr, ehdr.e_entry) - phdr.p_vaddr;
+					debug_printf("Kernel entry: 0x%lx\n", kernel_entry);
+				}
+				kernel_addr += kernel_entry;
 			}
-			kernel_addr += kernel_entry;
+			else {
+				/* Extra non-executable segment. */
+				add_kexec_segment("data", p, size,
+						  (void *)(dest + paddr - start),
+						  memsize);
+			}
 		}
 	}
 
