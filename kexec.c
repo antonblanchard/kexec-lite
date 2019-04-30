@@ -766,17 +766,45 @@ static void exec_kexec(void)
 	exit(1);
 }
 
+static void get_cmdline(char **cmdline, unsigned long *cmdline_len)
+{
+	int nodeoffset;
+	int len;
+	void *fdt;
+
+	fdt = fdt_from_fs();
+	if (!fdt)
+		return;
+
+	nodeoffset = fdt_path_offset(fdt, "/chosen");
+	if (nodeoffset < 0) {
+		FDT_ERROR("fdt_path_offset /chosen", nodeoffset);
+		return;
+	}
+
+	*cmdline = (char *) fdt_getprop(fdt, nodeoffset, "bootargs", &len);
+	if (!*cmdline && (len == -FDT_ERR_NOTFOUND)) {
+		*cmdline = "";
+		*cmdline_len = 0;
+		return;
+	}
+	else if (!*cmdline) {
+		FDT_ERROR("fdt_getprop bootargs", len);
+		exit(1);
+	}
+	*cmdline_len = (unsigned long) len;
+}
+
 static void do_file_load(char *kernel, char *initrd, char *cmdline)
 {
 	int kernel_fd = -1;
 	int initrd_fd = -1;
 	int ret = 0;
-	unsigned long cmdline_len;
+	unsigned long cmdline_len = 0;
 	unsigned long flags = 0;
 
 	if (!cmdline) {
-		cmdline = "";
-		cmdline_len = 0;
+		get_cmdline(&cmdline, &cmdline_len);
 	}
 	else
 		/* cmdline_len includes the '\0'. */
