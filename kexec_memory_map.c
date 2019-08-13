@@ -267,22 +267,22 @@ void kexec_memory_map(void *fdt, int reserve_initrd)
 	/* Reserve RTAS */
 	nodeoffset = fdt_path_offset(fdt, "/rtas");
 	if (nodeoffset > 0) {
-		uint32_t rtas_start, rtas_size;
+		uint32_t rtas_start = 0, rtas_size = 0;
 
 		if (getprop_u32(fdt, nodeoffset, "linux,rtas-base", &rtas_start)) {
 			fprintf(stderr, "getprop linux,rtas-base failed\n");
-			exit(1);
 		}
 
 		if (getprop_u32(fdt, nodeoffset, "rtas-size", &rtas_size)) {
 			fprintf(stderr, "getprop rtas-size failed\n");
-			exit(1);
 		}
 
-		simple_alloc_at(kexec_map, rtas_start, rtas_size);
+		if (rtas_start && rtas_size) {
+			simple_alloc_at(kexec_map, rtas_start, rtas_size);
 
-		if (fdt_add_mem_rsv(fdt, rtas_start, rtas_size))
-			perror("fdt_add_mem_rsv");
+			if (fdt_add_mem_rsv(fdt, rtas_start, rtas_size))
+				perror("fdt_add_mem_rsv");
+		}
 	}
 
 	nodeoffset = fdt_path_offset(fdt, "/ibm,opal");
