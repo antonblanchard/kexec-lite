@@ -1,6 +1,6 @@
 GIT_SHA1 ?= `git --work-tree=$(top_srcdir) --git-dir=$(top_srcdir)/.git describe --always --long --dirty || echo unknown`
 
-bin_PROGRAMS = kexec
+sbin_PROGRAMS = kexec
 
 kexec_SOURCES = kexec.c kexec_trampoline.S kexec_memory_map.c simple_allocator.c
 
