@@ -823,7 +823,7 @@ static void do_file_load(char *kernel, char *initrd, char *cmdline)
 	debug_printf("cmdline=\"%s\"\n", cmdline);
 	ret = syscall_kexec_file_load(kernel_fd, initrd_fd, cmdline_len, cmdline, flags);
 	if (ret) {
-		fprintf(stderr, "do_file_load: (%d) %s\n", ret, strerror(errno));
+		fprintf(stderr, "file_load failed: %s\n", strerror(errno));
 		exit(1);
 	}
 }
