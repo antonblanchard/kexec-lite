@@ -465,30 +465,48 @@ static void *fdt_from_fs(void)
 	return fdt;
 }
 
-static void load_initrd(char *name)
+struct filelist {
+	int size;
+#define MAX_FILELIST_SIZE 10
+	char *name[MAX_FILELIST_SIZE];
+	int filesize[MAX_FILELIST_SIZE];
+} initrds;
+
+static void load_initrd(void)
 {
 	int fd;
 	struct stat st;
 	void *p;
+	char *pend;
 	unsigned long size;
 	int ret;
 	unsigned long memsize;
 	unsigned long dest;
 
-	fd = open(name, O_RDONLY);
-	if (fd < 0) {
-		fprintf(stderr, "load_initrd: open of %s failed: %s\n",
-			name, strerror(errno));
-		exit(1);
-	}
+	printf("loading total %d initrds\n", initrds.size);
 
-	if (fstat(fd, &st) == -1) {
-		fprintf(stderr, "load_initrd: stat of %s failed: %s\n",
-			name, strerror(errno));
-		exit(1);
-	}
+	size = 0ul;
+	for (int i = 0; i < initrds.size; i++) {
+		fd = open(initrds.name[i], O_RDONLY);
+		if (fd < 0) {
+			fprintf(stderr, "load_initrd: open of %s failed: %s\n",
+				initrds.name[i], strerror(errno));
+			exit(1);
+		}
 
-	size = st.st_size;
+		if (fstat(fd, &st) == -1) {
+			fprintf(stderr, "load_initrd: stat of %s failed: %s\n",
+				initrds.name[i], strerror(errno));
+			exit(1);
+		}
+
+		initrds.filesize[i] = st.st_size;
+		printf("%s filesize: %d\n", initrds.name[i], initrds.filesize[i]);
+		size += st.st_size;
+		size += 4; /* appending logic for mulitple initrds, same as grub */
+
+		close(fd);
+	}
 
 	p = malloc(size);
 	if (!p) {
@@ -496,14 +514,22 @@ static void load_initrd(char *name)
 			size, strerror(errno));
 	}
 
-	ret = read(fd, p, size);
-	if (ret != size) {
-		fprintf(stderr, "load_initrd: read of %s returned %d: %s\n",
-			name, ret, strerror(errno));
-		exit(1);
-	}
+	pend = (char*) p;
 
-	close(fd);
+	for (int i = 0; i < initrds.size; i++)  {
+		fd = open(initrds.name[i], O_RDONLY);
+		ret = read(fd, (void*) pend, initrds.filesize[i]);
+		if (ret != initrds.filesize[i]) {
+			fprintf(stderr, "load_initrd: read of %s returned %d: %s\n",
+				initrds.name[i], ret, strerror(errno));
+			exit(1);
+		}
+		pend += initrds.filesize[i];
+		memset(pend, 0, 4);
+		pend += 4;
+
+		close(fd);
+	}
 
 	memsize = ALIGN_UP(size, PAGE_SIZE_64K);
 	dest = simple_alloc_low(kexec_map, memsize, PAGE_SIZE_64K);
@@ -856,6 +882,7 @@ int main(int argc, char *argv[])
 	int file_load = 0;
 	int unload = 0;
 	int force = 0;
+	int do_load_initrd = 0;
 	struct option long_options[] = {
 		{"help", 0, 0, 'h' },
 		{"debug", 0, 0, 'd' },
@@ -890,7 +917,12 @@ int main(int argc, char *argv[])
 			exit(1);
 
 		case 'i':
-			initrd = optarg;
+			do_load_initrd = 1;
+			initrds.name[initrds.size++] = optarg;
+			if (initrds.size > MAX_FILELIST_SIZE) {
+				fprintf(stderr, "initrds number > %d\n", MAX_FILELIST_SIZE);
+				exit(1);
+			}
 			break;
 
 		case 'c':
@@ -961,13 +993,13 @@ int main(int argc, char *argv[])
 
 		load_kernel(kernel);
 
-		if (initrd)
-			load_initrd(initrd);
+		if (do_load_initrd)
+			load_initrd();
 
 		if (cmdline)
 			update_cmdline(fdt, cmdline);
 
-		load_fdt(fdt, initrd != NULL);
+		load_fdt(fdt, do_load_initrd);
 		load_trampoline();
 
 		arm_kexec();
